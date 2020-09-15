@@ -8,7 +8,7 @@ export LIBS		:=	-lfmt
 export DIFF		:= diff
 export HEXDUMP	:= hexdump -C
 
-all: compile dump run
+all: compile run
 
 compile:
 	$(CC) -o tmc_strings main.cpp $(CXXFLAGS) $(LIBS)
@@ -46,15 +46,15 @@ inject: pack
 	dd of=eu_mod.gba bs=1 conv=notrunc seek=11286432 count=276704 status=none if=Italian.bin
 
 diff-rom:
-	hexdump -C eu.gba > eu.gba.hex
-	hexdump -C eu_mod.gba > eu_mod.gba.hex
-	diff eu.gba.hex eu_mod.gba.hex > gba.diff
+	@$(HEXDUMP) eu.gba > eu.gba.hex
+	@$(HEXDUMP) eu_mod.gba > eu_mod.gba.hex
+	@diff eu.gba.hex eu_mod.gba.hex
 
-	hexdump -C us.gba > us.gba.hex
-	hexdump -C us_mod.gba > us_mod.gba.hex
-	diff us.gba.hex us_mod.gba.hex > gba.diff
+	@$(HEXDUMP) us.gba > us.gba.hex
+	@$(HEXDUMP) us_mod.gba > us_mod.gba.hex
+	@diff us.gba.hex us_mod.gba.hex
 
-diff:
+diff: dump
 	@$(HEXDUMP) USA.bin | $(DIFF) base_us.hex -
 	@$(HEXDUMP) English.bin | $(DIFF) base_en.hex -
 	@$(HEXDUMP) French.bin | $(DIFF) base_fr.hex -
@@ -63,8 +63,8 @@ diff:
 	@$(HEXDUMP) Italian.bin | $(DIFF) base_it.hex -
 
 clean:
-	@rm tmc_strings
-	@rm *_mod.gba
-	@rm *.hex
-	@rm *.bin
-	@rm *.json
+	@rm -f tmc_strings
+	@rm -f *_mod.gba
+	@rm -f *.hex
+	@rm -f *.bin
+	@rm -f *.json
