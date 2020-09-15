@@ -1,0 +1,7 @@
+*.gba
+*.bin
+*.hex
+*.diff
+*.json
+
+tmc_strings
