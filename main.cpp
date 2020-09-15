@@ -3,10 +3,10 @@
 #include <nlohmann/json.hpp>
 
 using namespace std::string_literals;
-using json    = nlohmann::json;
-using u8      = std::uint8_t;
-using u16     = std::uint16_t;
-using u32     = std::uint32_t;
+using json = nlohmann::json;
+using u8   = std::uint8_t;
+using u16  = std::uint16_t;
+using u32  = std::uint32_t;
 
 const u32 RomStartAddress = 0x8000000;
 
@@ -556,12 +556,17 @@ namespace {
 
 }
 
-void DumpStrings(const char *const rom_path, const std::vector<LanguageTable> &tables) {
+void DumpStrings(std::string &rom_path, const std::vector<LanguageTable> &tables) {
     std::vector<char> rom;
 
     {
         /* Open ROM. */
         std::ifstream rom_file(rom_path, std::ios::in);
+
+        if (!rom_file.good()) {
+            fmt::print(stderr, "Couldn't open ROM {}\n", rom_path);
+            exit(EXIT_FAILURE);
+        }
 
         /* Get ROM size. */
         rom_file.seekg(0, std::ios::end);
@@ -622,13 +627,19 @@ void DumpStrings(const char *const rom_path, const std::vector<LanguageTable> &t
     }
 }
 
-void makeStringTable(const char *const src_path, const char *const dst_path) {
+void MakeStringTable(const std::string &src_path, const std::string &dst_path, const std::size_t out_size) {
     const json j = [&]() -> json {
         std::ifstream ifs(src_path);
+
+        if (!ifs.good()) {
+            fmt::print(stderr, "Couldn't open JSON {}\n", src_path);
+            exit(EXIT_FAILURE);
+        }
+
         return json::parse(ifs);
     }();
 
-    std::vector<char> buffer(301536);
+    std::vector<char> buffer(0x100000);
     std::uintptr_t root_start = (std::uintptr_t)buffer.data();
 
     char *root_ptr = buffer.data();
@@ -664,16 +675,30 @@ void makeStringTable(const char *const src_path, const char *const dst_path) {
         *(u32 *)root_ptr = (std::uintptr_t)table - root_start;
         root_ptr += sizeof(u32);
 
-        /* */
         table = str_ptr;
     }
 
+    /* Align table end to 0x10 bytes. */
     while ((std::uintptr_t)table & 0xf) {
-        *table = 0xff;
-        table++;
+        *table++ = 0xff;
     }
 
-    const std::size_t table_size = (uintptr_t)table - root_start;
+    std::size_t table_size = (uintptr_t)table - root_start;
+
+    if (out_size) {
+        /* Abort if string table is too big. */
+        if (table_size > out_size) {
+            fmt::print(stderr, "Table is too big. Should be {} but was {}", out_size, table_size);
+            exit(EXIT_FAILURE);
+        }
+
+        /* Pad table if it's too small. */
+        while (table_size < out_size) {
+            *table++ = 0xff;
+            table_size++;
+        }
+    }
+
     std::ofstream ofs(dst_path);
     ofs.write(buffer.data(), table_size);
 }
@@ -682,22 +707,137 @@ const std::vector<LanguageTable> LanguageTableUS = {
     {Language_USA, "USA", 0x89B1D90},
 };
 
+// clang-format off
 const std::vector<LanguageTable> LanguageTableEU = {
-    {Language_English, "English", 0x89AEB60},
-    {Language_French, "French", 0x89F7420},
-    {Language_German, "German", 0x8A3EEB0},
-    {Language_Spanish, "Spanish", 0x8A81E70},
-    {Language_Italian, "Italian", 0x8AC37A0},
+    {Language_English,  "English",  0x89AEB60},
+    {Language_French,   "French",   0x89F7420},
+    {Language_German,   "German",   0x8A3EEB0},
+    {Language_Spanish,  "Spanish",  0x8A81E70},
+    {Language_Italian,  "Italian",  0x8AC37A0},
 };
+// clang-format on
 
-int main() {
-    DumpStrings("us.gba", LanguageTableUS);
-    DumpStrings("eu.gba", LanguageTableEU);
+#include <getopt.h>
 
-    makeStringTable("USA.json", "USA.bin");
-    makeStringTable("English.json", "English.bin");
-    makeStringTable("French.json", "French.bin");
-    makeStringTable("German.json", "German.bin");
-    makeStringTable("Spanish.json", "Spanish.bin");
-    makeStringTable("Italian.json", "Italian.bin");
+const char *progname;
+
+void usage() {
+    fmt::print(stderr,
+               "tmc_strings (c) Luis Scheurenbrand\n"
+               "Built: " __TIME__ " " __DATE__ "\n"
+               "\n"
+               "Usage: {} [options...]\n"
+               "Options:\n"
+               "  -x, --extract     Extract string table from ROM and store it in json format. (Default)\n"
+               "  -p, --pack        Pack a string table from json format.\n"
+               "  --region          Specify ROM region. [USA, EU]\n"
+               "  --source          Specify source (-x: ROM, -p: JSON)\n"
+               "  --dest            Specify string table destination.\n"
+               "  --size            Specify string table size.\n",
+               progname);
+}
+
+// clang-format off
+constexpr const struct option long_options[] = {
+    {"extract", no_argument,        nullptr, 'x'},
+    {"pack",    no_argument,        nullptr, 'p'},
+    {"region",  required_argument,  nullptr, 0},
+    {"source",  required_argument,  nullptr, 1},
+    {"dest",    required_argument,  nullptr, 2},
+    {"size",    required_argument,  nullptr, 3},
+    {},
+};
+// clang-format on
+
+int main(int argc, char **argv) {
+    std::string src_path;
+    std::string dst_path;
+    std::size_t max_size = 0;
+
+    progname = (argc < 1) ? "tmc_strings" : argv[0];
+
+    enum {
+        Mode_Extract,
+        Mode_Pack,
+    } mode = Mode_Extract;
+
+    enum {
+        Region_USA,
+        Region_JAPAN,
+        Region_EU,
+    } region = Region_USA;
+
+    while (true) {
+        int opt_index;
+        int c = getopt_long(argc, argv, "xp", long_options, &opt_index);
+        if (c == -1)
+            break;
+
+        switch (c) {
+            case 'x':
+                mode = Mode_Extract;
+                break;
+            case 'p':
+                mode = Mode_Pack;
+                break;
+            case 0:
+                if (strcmp(optarg, "USA") == 0) {
+                    region = Region_USA;
+                } else if (strcmp(optarg, "EU") == 0) {
+                    region = Region_EU;
+                } else if (strcmp(optarg, "JAPAN") == 0) {
+                    region = Region_JAPAN;
+                    fmt::print("Region unsupported\n\n");
+                    usage();
+                    exit(EXIT_FAILURE);
+                }
+                break;
+            case 1:
+                src_path = optarg;
+                break;
+            case 2:
+                dst_path = optarg;
+                break;
+            case 3:
+                max_size = std::strtoul(optarg, nullptr, 0);
+                break;
+            default:
+                usage();
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    switch (mode) {
+        case Mode_Extract:
+            if (src_path == "") {
+                fmt::print("ROM source path not supplied.\n\n");
+                usage();
+                exit(EXIT_FAILURE);
+            }
+            DumpStrings(src_path, [region]() {
+                switch (region) {
+                    case Region_USA:
+                        return LanguageTableUS;
+                    case Region_EU:
+                        return LanguageTableEU;
+                    default:
+                        fmt::print("Region unsupported\n\n");
+                        usage();
+                        exit(EXIT_FAILURE);
+                }
+            }());
+            break;
+        case Mode_Pack:
+            if (src_path == "" || dst_path == "") {
+                fmt::print("Source or destination path not supplied\n\n");
+                usage();
+                exit(EXIT_FAILURE);
+            }
+            if (max_size == 0) {
+                fmt::print("Max size not supplied. Assuming shiftable.\n");
+            }
+            MakeStringTable(src_path, dst_path, max_size);
+    }
+
+    return EXIT_SUCCESS;
 }
