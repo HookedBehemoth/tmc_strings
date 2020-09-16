@@ -8,9 +8,7 @@ export LIBS		:=	-lfmt
 export DIFF		:= diff
 export HEXDUMP	:= hexdump -C
 
-all: compile run
-
-compile:
+all:
 	$(CC) -o tmc_strings main.cpp $(CXXFLAGS) $(LIBS)
 
 run: extract pack

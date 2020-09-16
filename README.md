@@ -26,8 +26,8 @@ Requires:
 
 command|result
 ---|---
-`make all` | `compile`, `extract` and `pack`
-`make compile` | Build program
+`make all` | Build program
+`make run` | `extract` and `pack`
 `make extract` | extract the string table to editable json files
 `make pack` | package the json files to string tables again
 `make inject` | `pack` and inject these new tables in a rom copy
