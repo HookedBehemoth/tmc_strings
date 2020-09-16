@@ -12,20 +12,7 @@ const u32 RomStartAddress = 0x8000000;
 
 namespace {
 
-    enum Language {
-        Language_USA,
-        Language_Japanese,
-        Language_English,
-        Language_French,
-        Language_German,
-        Language_Spanish,
-        Language_Italian,
-
-        Language_Count
-    };
-
     struct LanguageTable {
-        Language lang;
         const char *name;
         u32 address;
     };
@@ -78,7 +65,7 @@ namespace {
         [Input_Start]  = "Start",
     };
 
-    std::pair<u8, std::string> CharConvertArray[] = {
+    const std::map<u8, std::string> CharConvertArray = {
         {0x0a, "\n"},
         {0x0d, "\r"},
         {0x20, " "},
@@ -266,69 +253,7 @@ namespace {
         {0xFF, "ÿ"},
     };
 
-    std::string Unk1Handler(const char *&ptr);
-    std::string ColorHandler(const char *&ptr);
-    std::string SoundHandler(const char *&ptr);
-    std::string Unk4Handler(const char *&ptr);
-    std::string ChoiceHandler(const char *&ptr);
-    std::string VariableHandler(const char *&ptr);
-    std::string Unk7Handler(const char *&ptr);
-    std::string Unk8Handler(const char *&ptr);
-    std::string Unk9Handler(const char *&ptr);
-    std::string InputHandler(const char *&ptr);
-    std::string SymbolHandler(const char *&ptr);
-
     using ConvertFunction = std::string (*const)(const char *&);
-
-    std::pair<u8, ConvertFunction> FuncConvertArray[] = {
-        {0x01, Unk1Handler},
-        {0x02, ColorHandler},
-        {0x03, SoundHandler},
-        {0x04, Unk4Handler},
-        {0x05, ChoiceHandler},
-        {0x06, VariableHandler},
-        {0x07, Unk7Handler},
-        {0x08, Unk8Handler},
-        {0x09, Unk9Handler},
-        {0x0c, InputHandler},
-        {0x0f, SymbolHandler},
-    };
-
-    std::string ParseTMCString(const char *ptr) {
-        std::string ret;
-
-        while (*ptr) {
-            u8 c = *ptr++;
-
-            /* Convert character. */
-            {
-                const auto it = std::find_if(std::begin(CharConvertArray), std::end(CharConvertArray), [c](std::pair<u8, std::string> &data) {
-                    return c == data.first;
-                });
-
-                if (it != std::end(CharConvertArray)) {
-                    ret += it->second;
-                    continue;
-                }
-            }
-
-            /* Convert function. */
-            {
-                const auto it = std::find_if(std::begin(FuncConvertArray), std::end(FuncConvertArray), [c](std::pair<u8, ConvertFunction> &data) {
-                    return c == data.first;
-                });
-
-                if (it != std::end(FuncConvertArray)) {
-                    ret += it->second(ptr);
-                    continue;
-                }
-            }
-
-            throw std::runtime_error(fmt::format("Unknown characters: {}", ptr));
-        }
-
-        return ret;
-    }
 
     std::string Unk1Handler(const char *&ptr) {
         u8 a = *ptr++;
@@ -407,6 +332,52 @@ namespace {
     std::string SymbolHandler(const char *&ptr) {
         u8 a = *ptr++;
         return fmt::format("{{Symbol:{:02X}}}", a);
+    }
+
+    const std::map<u8, ConvertFunction> FuncConvertArray = {
+        {0x01, Unk1Handler},
+        {0x02, ColorHandler},
+        {0x03, SoundHandler},
+        {0x04, Unk4Handler},
+        {0x05, ChoiceHandler},
+        {0x06, VariableHandler},
+        {0x07, Unk7Handler},
+        {0x08, Unk8Handler},
+        {0x09, Unk9Handler},
+        {0x0c, InputHandler},
+        {0x0f, SymbolHandler},
+    };
+
+    std::string ParseTMCString(const char *ptr) {
+        std::string ret;
+
+        while (*ptr) {
+            u8 c = *ptr++;
+
+            /* Convert character. */
+            {
+                const auto it = CharConvertArray.find(c);
+
+                if (it != std::end(CharConvertArray)) {
+                    ret += it->second;
+                    continue;
+                }
+            }
+
+            /* Convert function. */
+            {
+                const auto it = FuncConvertArray.find(c);
+
+                if (it != std::end(FuncConvertArray)) {
+                    ret += it->second(ptr);
+                    continue;
+                }
+            }
+
+            throw std::runtime_error(fmt::format("Unknown characters: {}", ptr));
+        }
+
+        return ret;
     }
 
     using RevertFunction = void (*)(const char *&, char *&);
@@ -488,7 +459,7 @@ namespace {
         src += 2;
     }
 
-    std::pair<std::string, RevertFunction> FuncRevertArray[] = {
+    const std::pair<std::string, RevertFunction> FuncRevertArray[] = {
         {"Color", ColorRevert},
         {"Sound", SoundRevert},
         {"Choice", ChoiceRevert},
@@ -498,7 +469,7 @@ namespace {
         {"Symbol", SymbolRevert},
     };
 
-    char *WriteTMCString(char *dst, const std::string &src) {
+    void WriteTMCString(char *&dst, const std::string &src) {
         const char *ptr = src.data();
 
         while (*ptr) {
@@ -506,9 +477,8 @@ namespace {
             {
                 if (*ptr == '{') {
                     ptr++;
-                    auto it = std::find_if(std::begin(FuncRevertArray), std::end(FuncRevertArray), [&](std::pair<std::string, RevertFunction> &data) {
-                        auto &str = data.first;
-                        return std::strncmp(ptr, str.c_str(), str.size()) == 0;
+                    const auto it = std::find_if(std::begin(FuncRevertArray), std::end(FuncRevertArray), [&](const auto &data) {
+                        return std::strncmp(ptr, data.first.c_str(), data.first.size()) == 0;
                     });
 
                     if (it != std::end(FuncRevertArray)) {
@@ -531,13 +501,8 @@ namespace {
 
             /* Convert character. */
             {
-                const auto it = std::find_if(std::begin(CharConvertArray), std::end(CharConvertArray), [ptr](std::pair<u8, std::string> &data) {
-                    if (data.second.size() == 1)
-                        return data.second[0] == *ptr;
-                    else if (data.second.size() > 0)
-                        return std::strncmp(ptr, data.second.c_str(), data.second.length()) == 0;
-                    else
-                        throw std::runtime_error(ptr);
+                const auto it = std::find_if(std::begin(CharConvertArray), std::end(CharConvertArray), [ptr](const auto &data) {
+                    return std::strncmp(ptr, data.second.c_str(), data.second.length()) == 0;
                 });
 
                 if (it != std::end(CharConvertArray)) {
@@ -550,16 +515,14 @@ namespace {
             throw std::runtime_error(fmt::format("unmatched characters: \"{}\"\n", ptr));
         }
         *dst++ = '\0';
-
-        return dst;
     }
 
 }
 
-void DumpStrings(std::string &rom_path, const std::vector<LanguageTable> &tables) {
-    std::vector<char> rom;
+void ExtractStringTable(std::string &rom_path, const std::vector<LanguageTable> &tables) {
+    const std::vector<char> rom = [&]() {
+        std::vector<char> rom;
 
-    {
         /* Open ROM. */
         std::ifstream rom_file(rom_path, std::ios::in);
 
@@ -576,7 +539,9 @@ void DumpStrings(std::string &rom_path, const std::vector<LanguageTable> &tables
         rom.resize(rom_size);
         rom_file.seekg(0, std::ios::beg);
         rom_file.read(&rom[0], rom_size);
-    }
+
+        return rom;
+    }();
 
     auto ReadAbsolute = [&](u32 address) -> u32 {
         return *(u32 *)&rom[address - RomStartAddress];
@@ -613,11 +578,7 @@ void DumpStrings(std::string &rom_path, const std::vector<LanguageTable> &tables
                 const std::size_t string_start = category_start + string_table[l];
 
                 /* Parse TMC. */
-                if constexpr (false) {
-                    category[l] = fmt::format("{:X}: {}", string_start, ParseTMCString(&rom[string_start - RomStartAddress]));
-                } else {
-                    category[l] = ParseTMCString(&rom[string_start - RomStartAddress]);
-                }
+                category[l] = ParseTMCString(&rom[string_start - RomStartAddress]);
             }
         }
 
@@ -627,7 +588,7 @@ void DumpStrings(std::string &rom_path, const std::vector<LanguageTable> &tables
     }
 }
 
-void MakeStringTable(const std::string &src_path, const std::string &dst_path, const std::size_t out_size) {
+void PackStringTable(const std::string &src_path, const std::string &dst_path, const std::size_t out_size) {
     const json j = [&]() -> json {
         std::ifstream ifs(src_path);
 
@@ -657,12 +618,7 @@ void MakeStringTable(const std::string &src_path, const std::string &dst_path, c
             auto str = str_j.get<std::string>();
 
             /* Copy string to table. */
-            if constexpr (false) {
-                std::memcpy(str_ptr, str.data(), str.size());
-                str_ptr += str.size() + 1;
-            } else {
-                str_ptr = WriteTMCString(str_ptr, str);
-            }
+            WriteTMCString(str_ptr, str);
         }
 
         /* Align string table size by 16 bytes. */
@@ -703,17 +659,17 @@ void MakeStringTable(const std::string &src_path, const std::string &dst_path, c
     ofs.write(buffer.data(), table_size);
 }
 
+// clang-format off
 const std::vector<LanguageTable> LanguageTableUS = {
-    {Language_USA, "USA", 0x89B1D90},
+    {"USA",      0x89B1D90},
 };
 
-// clang-format off
 const std::vector<LanguageTable> LanguageTableEU = {
-    {Language_English,  "English",  0x89AEB60},
-    {Language_French,   "French",   0x89F7420},
-    {Language_German,   "German",   0x8A3EEB0},
-    {Language_Spanish,  "Spanish",  0x8A81E70},
-    {Language_Italian,  "Italian",  0x8AC37A0},
+    {"English",  0x89AEB60},
+    {"French",   0x89F7420},
+    {"German",   0x8A3EEB0},
+    {"Spanish",  0x8A81E70},
+    {"Italian",  0x8AC37A0},
 };
 // clang-format on
 
@@ -814,7 +770,7 @@ int main(int argc, char **argv) {
                 usage();
                 exit(EXIT_FAILURE);
             }
-            DumpStrings(src_path, [region]() {
+            ExtractStringTable(src_path, [region]() {
                 switch (region) {
                     case Region_USA:
                         return LanguageTableUS;
@@ -836,7 +792,7 @@ int main(int argc, char **argv) {
             if (max_size == 0) {
                 fmt::print("Max size not supplied. Assuming shiftable.\n");
             }
-            MakeStringTable(src_path, dst_path, max_size);
+            PackStringTable(src_path, dst_path, max_size);
     }
 
     return EXIT_SUCCESS;
