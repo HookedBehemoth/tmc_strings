@@ -4,8 +4,6 @@ Extract, edit and pack string tables for `The Legend of Zelda: The Minish Cap`.
 ## Build requirements
 * make
 * gcc
-* [libfmt](https://github.com/fmtlib/fmt)
-* [nlohmann json](https://github.com/nlohmann/json)
 
 ## Usage
 ```
